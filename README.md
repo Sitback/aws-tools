@@ -57,3 +57,13 @@ your ${HOME}/.aws/config file then display basic info about the instances
 in the region
 
 
+## aws-ami-cleanup
+
+This program will search your account for any AMI's with a Tag key of autocleanup
+and deregister them and delete any associated snapshots. The following will 
+search for any AMI's older than 2 days and clean them up
+
+Example: aws-ami-cleanup -a 2
+
+
+

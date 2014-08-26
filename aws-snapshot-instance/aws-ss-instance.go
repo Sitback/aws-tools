@@ -25,11 +25,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
+    "strconv"
 
-	"github.com/crowdmob/goamz/aws"
-	"github.com/gombadi/goamz/ec2"
 	"github.com/gombadi/go-ini"
+	"github.com/goamz/goamz/aws"
+	"github.com/goamz/goamz/ec2"
 )
 
 // cmdline flag if we want verbose output
@@ -62,7 +64,7 @@ func loadAWSCredentials(awsKey, awsSecret, regionName string) {
 	if !ok {
 		// failed to read from file so last chance is command line
 		if awsSecret == "xxxx" {
-			log.Fatalf("Error - unable to find AWS Secret Key information\n")
+			log.Fatalf("error - unable to find AWS secret sey information\n")
 		} else {
 			os.Setenv("AWS_SECRET_ACCESS_KEY", awsSecret)
 		}
@@ -75,7 +77,7 @@ func loadAWSCredentials(awsKey, awsSecret, regionName string) {
 	if !ok {
 		// failed to read from file so last chance is command line
 		if awsKey == "xxxx" {
-			log.Fatalf("Error - unable to find AWS Access Key information\n")
+			log.Fatalf("Error - unable to find AWS access key information\n")
 		} else {
 			os.Setenv("AWS_ACCESS_KEY_ID", awsKey)
 		}
@@ -89,7 +91,7 @@ func loadAWSCredentials(awsKey, awsSecret, regionName string) {
 	if regionName == "xxxx" {
 		regionNamef, ok = iniFile.Get("default", "region")
 		if !ok {
-			log.Fatalf("Error - unable to find AWS Region information\n")
+			log.Fatalf("error - unable to find AWS region information\n")
 		} else {
 			os.Setenv("AWS_ACCESS_REGION", regionNamef)
 		}
@@ -102,61 +104,98 @@ func loadAWSCredentials(awsKey, awsSecret, regionName string) {
 
 }
 
-func cleanupAMI(e *ec2.EC2, cleanupImage ec2.Image) {
-	if verbose {
-		fmt.Printf("Info - Deregistering AMI: %s\n", cleanupImage.Id)
+func getBkupInstances(e *ec2.EC2, bkupId string) (bkupInstances []ec2.CreateImage) {
+
+	var theInstance ec2.CreateImage
+
+	instanceSlice := []string{}
+	filter := ec2.NewFilter()
+
+    // if instance id provided use it else search for tags autobkup
+	if len(bkupId) > 0 {
+		instanceSlice = append(instanceSlice, bkupId)
+		filter = nil
+	} else {
+		filter.Add("tag-key", "autobkup")
+		instanceSlice = nil
 	}
-	// looks like we have found an ami to cleanup
-	deregisterImageResp, err := e.DeregisterImage(cleanupImage.Id)
 
-	if err != nil || deregisterImageResp.Response != true {
-		fmt.Printf("\nError deregistering the image %s...\n%v\n\n", cleanupImage.Id, err)
-		return
+	instanceResp, err := e.DescribeInstances(instanceSlice, filter)
+	if err != nil {
+		log.Fatalf("\nerror getting the instance details with tag autobkup\n%v\n", err)
 	}
 
-	if verbose {
-		fmt.Printf("Image has been deregistered and now waiting 2 seconds for AWS to release the snapshots from the AMI\n")
-	}
-
-	// after the image is deregistered then you can delete the snapshots it used
-	time.Sleep(2 * time.Second)
-
-	for blockDevice := range cleanupImage.BlockDevices {
-		if len(cleanupImage.BlockDevices[blockDevice].SnapshotId) > 0 {
-			if verbose {
-				fmt.Printf("Info - Deleting associated snapshot: %s from ami: %s\n", cleanupImage.BlockDevices[blockDevice].SnapshotId, cleanupImage.Id)
+	// for any instance found extract tag name and instanceid
+	for reservation := range instanceResp.Reservations {
+		for instance := range instanceResp.Reservations[reservation].Instances {
+			for tag := range instanceResp.Reservations[reservation].Instances[instance].Tags {
+				if instanceResp.Reservations[reservation].Instances[instance].Tags[tag].Key == "Name" {
+                    // name of the created AMI must be unique so add the Unix Epoch
+					theInstance.Name = instanceResp.Reservations[reservation].Instances[instance].Tags[tag].Value + "-" + strconv.FormatInt(time.Now().Unix(),10)
+					break
+				} else {
+					theInstance.Name = instanceResp.Reservations[reservation].Instances[instance].InstanceId + "-" + strconv.FormatInt(time.Now().Unix(),10)
+				}
 			}
-
-			_, err := e.DeleteSnapshots(cleanupImage.BlockDevices[blockDevice].SnapshotId)
-			if err != nil {
-				fmt.Printf("\nError deleting the snapshots %s.\n%v\n\n", cleanupImage.BlockDevices[blockDevice].SnapshotId, err)
-			}
+			theInstance.InstanceId = instanceResp.Reservations[reservation].Instances[instance].InstanceId
+            theInstance.NoReboot = true
+			// append details on this instance to the slice
+			bkupInstances = append(bkupInstances, theInstance)
 		}
 	}
-	if verbose {
-		fmt.Printf("Snapshots have been deleted.\n")
-	}
+	return
 }
 
-func main() {
 
+func ssInstance(e *ec2.EC2, abkupInstance *ec2.CreateImage) {
+
+
+	createImageResp, err := e.CreateImage(abkupInstance)
+	if err != nil {
+		log.Printf("non-fatal error creating the AMI image: %v\n", err)
+		// any problems and out of here as createImageResp is invalid
+		return
+	}
+       // store the creation time in the tag so it can be checked during auto cleanup
+	tags := []ec2.Tag{ec2.Tag{Key: "autocleanup", Value: strconv.FormatInt(time.Now().Unix(),10)}}
+	_, err = e.CreateTags([]string{createImageResp.ImageId}, tags)
+	if err != nil {
+		log.Printf("non-fatal error adding autocleanup tag to image: %v\n", err)
+	}
+
+	if verbose {
+		time.Sleep(1 * time.Second)
+		fmt.Printf("Backing up instance Id: %s named %s completed. New AMI: %s\n", abkupInstance.InstanceId, abkupInstance.Name, createImageResp.ImageId)
+	}
+
+}
+
+
+
+func main() {
 	// pointers to objects we use to talk to AWS
 	var e *ec2.EC2
-	var imagesResp *ec2.ImagesResp
 
 	// storage for commandline args
 	var regionName, awsKey, awsSecret, awsRegion string
-	var autoDays int
-	var amiId string
+	var autoFlag bool
+	var bkupId string
 
 	flag.StringVar(&regionName, "r", "xxxx", "AWS Region to send request")
 	flag.StringVar(&awsKey, "k", "xxxx", "AWS Access Key")
 	flag.StringVar(&awsSecret, "s", "xxxx", "AWS Secret key")
 	flag.BoolVar(&verbose, "v", false, "Produce verbose output")
 
-	flag.IntVar(&autoDays, "a", 0, "In auto cleanup mode cleanup any AMI's older than this number of days")
-	flag.StringVar(&amiId, "i", "", "AMI Id to be deleted")
+	flag.BoolVar(&autoFlag, "a", false, "In auto mode snapshot any instance with an autobkup tag")
+	flag.StringVar(&bkupId, "i", "", "Instance id to be backed up")
 	flag.Parse()
+
+	// make sure we are in auto mode or an ami id has been provided
+	if !autoFlag && len(bkupId) == 0 {
+		fmt.Printf("No instance details provided. Please provide an instance id to snapshot\nor enable auto mode to snapshot all tagged instances.\n\n")
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
 
 	// load the AWS credentials from the environment or from the standard file
 	loadAWSCredentials(awsKey, awsSecret, regionName)
@@ -193,74 +232,36 @@ func main() {
 		log.Fatalf("Error - Sorry I can not find the url endpoint for region %s\n", awsRegion)
 	}
 
-	// make sure we are in auto mode or an ami id has been provided
-	if autoDays == 0 && len(amiId) == 0 {
-		fmt.Printf("No ami details provided. Please provide an ami-id to cleanup\nor enable auto cleanup mode and specify a number of days.\n")
-		flag.PrintDefaults()
-		os.Exit(1)
-	}
+	// load the struct that has details on all instances to be snapshotted
+	bkupInstances := getBkupInstances(e, bkupId)
 
-	// config for auto mode
-	if autoDays > 0 {
+	// now we have the slice of instances to be backed up we can create the AMI then tag them
 
-		options := ec2.DescribeImagesOptions{
-			Owner: "self", // Only search my own images
-			// ExecutableBy: "all"
-		}
+	var wg sync.WaitGroup
 
-		// auto mode search for ami's to cleanup
-		filter := ec2.NewFilter()
-		filter.Add("tag-key", "autocleanup")
+	for instance := range bkupInstances {
 
-		imagesResp, err = e.Images(nil, filter, &options)
-		if err != nil {
-			log.Fatalf("\nError getting the Image details for images.\n%v\n", err)
-		}
-	} else {
-		// single ami manual mode
-		amiIdsSlice := []string{amiId}
+		// Increment the WaitGroup counter.
+		wg.Add(1)
 
-		options := ec2.DescribeImagesOptions{}
-
-		imagesResp, err = e.Images(amiIdsSlice, nil, &options)
-		if err != nil {
-			log.Fatalf("\nError getting the Image details for image %s...\n%v\n", amiId, err)
-		}
-	}
-
-	if len(imagesResp.Images) == 0 {
-		if verbose {
-			fmt.Printf("No images found to cleanup. Exiting\n")
-		}
-		os.Exit(0)
-	}
-
-	// extract the instanceId with autostop tags and state running
-	for image := range imagesResp.Images {
-
-		// The returned Images from AWS should only be the ones with autocleanup but lets check anyway
-		// and only delete if the days have passed
-
-		for tag := range imagesResp.Images[image].Tags {
-			if imagesResp.Images[image].Tags[tag].Key == "autocleanup" {
-				// check if time is up for this AMI
-
-				// extract the time this AMI was created
-				t, _ := time.Parse(time.RFC3339, imagesResp.Images[image].Tags[tag].Value)
-				elapsed := time.Since(t)
-
-				if (autoDays * 86400) < int(elapsed.Seconds()) {
-					// deregister the AMI and delete associated snapshots
-					cleanupAMI(e, imagesResp.Images[image])
-					//fmt.Printf("\nWould have cleaned up AMI: %s\n\n", imagesResp.Images[image].Id)
-				}
-			}
-		}
+		// Launch a goroutine to fetch the URL.
+		go func(e *ec2.EC2, abkupInstance ec2.CreateImage) {
+			// Decrement the counter when the goroutine completes.
+			defer wg.Done()
+			// snapshot the instance.
+			ssInstance(e, &abkupInstance)
+		}(e, bkupInstances[instance])
 
 	}
+
+	// Wait for all Amazon requests to complete.
+	wg.Wait()
 
 	if verbose {
 		fmt.Printf("All done.\n")
+
 	}
 
 }
+
+

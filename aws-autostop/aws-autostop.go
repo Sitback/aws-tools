@@ -11,9 +11,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sitback/go-ini"
-	"github.com/crowdmob/goamz/aws"
-	"github.com/crowdmob/goamz/ec2"
+	"github.com/gombadi/go-ini"
+	"github.com/goamz/goamz/aws"
+	"github.com/goamz/goamz/ec2"
 )
 
 func main() {
@@ -35,25 +35,25 @@ func main() {
 	flag.Parse()
 
 	// read the standard AWS ini file in case it is needed
-	iniFile, err := ini.LoadFile(os.Getenv("HOME") + "/.aws/config")
+	iniFile, err := ini.LoadFile(os.Getenv("HOME") + "/.aws/credentials")
 
 	// if any value is not provided on the command line then read all values
 	// from the ini file
 	if awsSecret == "xxxx" || awsKey == "xxxx" {
-		awsSecret, ok = iniFile.Geti("default", "AWS_SECRET_ACCESS_KEY")
+		awsSecret, ok = iniFile.Get("default", "aws_secret_access_key")
 		if !ok {
 			fmt.Printf("Error - unable to find AWS Secret Key information\n")
 			os.Exit(1)
 		}
 
-		awsKey, ok = iniFile.Geti("default", "AWS_ACCESS_KEY_ID")
+		awsKey, ok = iniFile.Get("default", "aws_access_key_id")
 		if !ok {
 			fmt.Printf("Error - unable to find AWS Access Key information\n")
 			os.Exit(1)
 		}
 	}
 	if regionName == "xxxx" {
-		regionName, ok = iniFile.Geti("default", "region")
+		regionName, ok = iniFile.Get("default", "region")
 		if !ok {
 			fmt.Printf("Error - unable to find AWS Region information\n")
 			os.Exit(1)

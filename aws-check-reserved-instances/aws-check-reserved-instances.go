@@ -13,9 +13,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/crowdmob/goamz/aws"
-	"github.com/crowdmob/goamz/ec2"
-	"github.com/sitback/go-ini"
+	"github.com/gombadi/goamz/aws"
+	"github.com/gombadi/goamz/ec2"
+	"github.com/gombadi/go-ini"
 )
 
 func main() {
@@ -40,7 +40,7 @@ func main() {
 
 	// use any values not supplied on the command line
 	if regionName == "xxxx" {
-		regionName, ok = iniFile.Geti("default", "region")
+		regionName, ok = iniFile.Get("default", "region")
 		if !ok {
 			fmt.Printf("Error - unable to find AWS Region information\n")
 			os.Exit(1)
@@ -50,13 +50,13 @@ func main() {
 	//  read secret key from command line or ini file
 	// if either secret key or access key are not provided then read all info from ini file
 	if awsSecret == "xxxx" || awsKey == "xxxx" {
-		awsSecret, ok = iniFile.Geti("default", "AWS_SECRET_ACCESS_KEY")
+		awsSecret, ok = iniFile.Get("default", "aws_secret_access_key")
 		if !ok {
 			fmt.Printf("Error - unable to find AWS Secret Key information\n")
 			os.Exit(1)
 		}
 
-		awsKey, ok = iniFile.Geti("default", "AWS_ACCESS_KEY_ID")
+		awsKey, ok = iniFile.Get("default", "aws_access_key_id")
 		if !ok {
 			fmt.Printf("Error - unable to find AWS Access Key information\n")
 			os.Exit(1)

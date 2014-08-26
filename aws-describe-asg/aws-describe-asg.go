@@ -17,86 +17,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"log"
 
-	"github.com/crowdmob/goamz/autoscaling"
-	"github.com/crowdmob/goamz/aws"
-	"github.com/gombadi/goamz/ec2"
+	"github.com/goamz/goamz/autoscaling"
+	"github.com/goamz/goamz/aws"
+	"github.com/goamz/goamz/ec2"
 	"github.com/gombadi/go-ini"
 )
-
-
-
-// cmdline flag if we want verbose output
-var verbose bool
-
-// loadAWSCredentials function will first try and read from the env variables
-// and if nothing found then try from the standard file then from the command line
-func loadAWSCredentials(awsKey, awsSecret, regionName string) {
-
-	var awsSecretf, awsKeyf, regionNamef string
-	var ok bool
-
-	if len(os.Getenv("AWS_SECRET_ACCESS_KEY")) > 5 && len(os.Getenv("AWS_ACCESS_KEY_ID")) > 5 {
-		// all must be good so lets try these credentials
-		if verbose {
-			fmt.Printf("Info - Using AWS credentials from the environment\n")
-		}
-		return
-	}
-
-	// read the standard AWS ini file in case it is needed
-	iniFile, err := ini.LoadFile(os.Getenv("HOME") + "/.aws/credentials")
-
-	if err != nil {
-		// if we get an error with the standard name try the previous name
-		iniFile, err = ini.LoadFile(os.Getenv("HOME") + "/.aws/config")
-	}
-
-	awsSecretf, ok = iniFile.Get("default", "aws_secret_access_key")
-	if !ok {
-		// failed to read from file so last chance is command line
-		if awsSecret == "xxxx" {
-			log.Fatalf("Error - unable to find AWS Secret Key information\n")
-		} else {
-			os.Setenv("AWS_SECRET_ACCESS_KEY", awsSecret)
-		}
-
-	} else {
-		os.Setenv("AWS_SECRET_ACCESS_KEY", awsSecretf)
-	}
-
-	awsKeyf, ok = iniFile.Get("default", "aws_access_key_id")
-	if !ok {
-		// failed to read from file so last chance is command line
-		if awsKey == "xxxx" {
-			log.Fatalf("Error - unable to find AWS Access Key information\n")
-		} else {
-			os.Setenv("AWS_ACCESS_KEY_ID", awsKey)
-		}
-
-	} else {
-		os.Setenv("AWS_ACCESS_KEY_ID", awsKeyf)
-	}
-
-	// region is not a standard for the account so if not provided on
-	// command line then pull from the config file
-	if regionName == "xxxx" {
-		regionNamef, ok = iniFile.Get("default", "region")
-		if !ok {
-			log.Fatalf("Error - unable to find AWS Region information\n")
-		} else {
-			os.Setenv("AWS_ACCESS_REGION", regionNamef)
-		}
-	} else {
-		os.Setenv("AWS_ACCESS_REGION", regionName)
-	}
-	if verbose {
-		fmt.Printf("Info - Using AWS credentials from config file and connecting to region %s\n", os.Getenv("AWS_ACCESS_REGION"))
-	}
-
-}
-
 
 func main() {
 
@@ -105,7 +31,8 @@ func main() {
 	var as *autoscaling.AutoScaling
 
 	// storage for commandline args
-	var regionName, awsKey, awsSecret, asgName, awsRegion string
+	var regionName, awsKey, awsSecret, asgName string
+	var ok bool
 
 	flag.StringVar(&asgName, "a", "xxxx", "AWS Auto scale group name")
 	flag.StringVar(&regionName, "r", "xxxx", "AWS Region to send request")
@@ -113,12 +40,35 @@ func main() {
 	flag.StringVar(&awsSecret, "s", "xxxx", "AWS Secret key")
 	flag.Parse()
 
-	// load the AWS credentials from the environment or from the standard file
-	loadAWSCredentials(awsKey, awsSecret, regionName)
+	// read the standard AWS ini file in case it is needed
+	iniFile, err := ini.LoadFile(os.Getenv("HOME") + "/.aws/config")
 
-	// pull the region from the environment
-	awsRegion = os.Getenv("AWS_ACCESS_REGION")
+	if regionName == "xxxx" {
+		regionName, ok = iniFile.Get("default", "region")
+		if !ok {
+			fmt.Printf("Error - unable to find AWS Region information\n")
+			os.Exit(1)
+		}
+	}
 
+	// if any value is not supplied on the command line then try and read the values
+	// from the ini file
+	if awsSecret == "xxxx" || awsKey == "xxxx" {
+		awsSecret, ok = iniFile.Get("default", "aws_secret_access_key")
+		if !ok {
+			fmt.Printf("Error - unable to find AWS Secret Key information\n")
+			os.Exit(1)
+		}
+
+		awsKey, ok = iniFile.Get("default", "aws_access_key_id")
+		if !ok {
+			fmt.Printf("Error - unable to find AWS Access Key information\n")
+			os.Exit(1)
+		}
+	}
+	// store auth info in environment
+	os.Setenv("AWS_SECRET_ACCESS_KEY", awsSecret)
+	os.Setenv("AWS_ACCESS_KEY_ID", awsKey)
 
 	if asgName == "xxxx" {
 		fmt.Printf("Error - No AWS Auto scale name provided\n")
@@ -134,7 +84,7 @@ func main() {
 	}
 
 	// create the objects we will use to talk to AWS
-	switch awsRegion {
+	switch regionName {
 	case "eu-west-1":
 		as = autoscaling.New(auth, aws.EUWest)
 		e = ec2.New(auth, aws.EUWest)
@@ -160,7 +110,7 @@ func main() {
 		as = autoscaling.New(auth, aws.APSoutheast2)
 		e = ec2.New(auth, aws.APSoutheast2)
 	default:
-		fmt.Printf("Error - Sorry I can not find the url endpoint for region %s\n", awsRegion)
+		fmt.Printf("Error - Sorry I can not find the url endpoint for region %s\n", regionName)
 		os.Exit(1)
 	}
 
@@ -181,7 +131,6 @@ func main() {
 	if len(groupResp.AutoScalingGroups) < 1 {
 		fmt.Printf("No Auto Scale Group info found for %s.\n", asgNames[0])
 		os.Exit(1)
-
 	}
 
 	for asGroup := range groupResp.AutoScalingGroups {
@@ -189,6 +138,11 @@ func main() {
 			// extract the instanceid's from the auto scale details and append to a slice
 			instanceSlice = append(instanceSlice, groupResp.AutoScalingGroups[asGroup].Instances[instance].InstanceId)
 		}
+	}
+
+	if len(instanceSlice) < 1 {
+		fmt.Printf("No instances in auto scale group %s.\n", asgNames[0])
+		os.Exit(1)
 	}
 
 	instanceResp, err := e.DescribeInstances(instanceSlice, nil)

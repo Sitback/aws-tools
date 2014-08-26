@@ -8,11 +8,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"log"
+	"os"
 
-	"github.com/crowdmob/goamz/aws"
-	"github.com/crowdmob/goamz/ec2"
+	"github.com/goamz/goamz/aws"
+	"github.com/goamz/goamz/ec2"
 	"github.com/gombadi/go-ini"
 )
 
@@ -39,7 +39,7 @@ func loadAWSCredentials(awsKey, awsSecret, regionName string) {
 
 	if err != nil {
 		// if we get an error with the standard name try the previous name
-		iniFile, err = ini.LoadFile(os.Getenv("HOME") + "/.aws/config")
+		iniFile, err = ini.LoadFile(os.Getenv("HOME") + "/.aws/credentials")
 	}
 
 	awsSecretf, ok = iniFile.Get("default", "aws_secret_access_key")
@@ -86,27 +86,21 @@ func loadAWSCredentials(awsKey, awsSecret, regionName string) {
 
 }
 
-
-
-
 func main() {
 
 	// pointers to objects we use to talk to AWS
 	var e *ec2.EC2
 	// storage for commandline args
-	var regionName, awsKey, awsSecret, awsRegion  string
+	var regionName, awsKey, awsSecret string
 
 	flag.StringVar(&regionName, "r", "xxxx", "AWS Region to send request")
 	flag.StringVar(&awsKey, "k", "xxxx", "AWS Access Key")
 	flag.StringVar(&awsSecret, "s", "xxxx", "AWS Secret key")
+	flag.BoolVar(&verbose, "v", false, "Verbose output. Default: false")
 	flag.Parse()
 
-
-	// load the AWS credentials from the environment or from the standard file
+	// load the AWS credentials from the environment or standard file
 	loadAWSCredentials(awsKey, awsSecret, regionName)
-
-	// pull the region from the environment
-	awsRegion = os.Getenv("AWS_ACCESS_REGION")
 
 	// Pull the access details from environment variables
 	// AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
@@ -116,8 +110,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// pull the region from the environment
+	regionName = os.Getenv("AWS_ACCESS_REGION")
+
 	// create the objects we will use to talk to AWS
-	switch awsRegion {
+	switch regionName {
 	case "eu-west-1":
 		e = ec2.New(auth, aws.EUWest)
 	case "sa-east-1":
@@ -135,7 +132,7 @@ func main() {
 	case "ap-southeast-2":
 		e = ec2.New(auth, aws.APSoutheast2)
 	default:
-		fmt.Printf("Error - Sorry I can not find the url endpoint for region %s\n", awsRegion)
+		fmt.Printf("Error - Sorry I can not find the url endpoint for region %s\n", regionName)
 		os.Exit(1)
 	}
 

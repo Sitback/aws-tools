@@ -25,13 +25,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"sync"
 	"time"
-    "strconv"
 
-	"github.com/gombadi/go-ini"
 	"github.com/goamz/goamz/aws"
 	"github.com/goamz/goamz/ec2"
+	"github.com/gombadi/go-ini"
+	"github.com/gombadi/go-rate"
 )
 
 // cmdline flag if we want verbose output
@@ -111,7 +112,7 @@ func getBkupInstances(e *ec2.EC2, bkupId string) (bkupInstances []ec2.CreateImag
 	instanceSlice := []string{}
 	filter := ec2.NewFilter()
 
-    // if instance id provided use it else search for tags autobkup
+	// if instance id provided use it else search for tags autobkup
 	if len(bkupId) > 0 {
 		instanceSlice = append(instanceSlice, bkupId)
 		filter = nil
@@ -130,15 +131,15 @@ func getBkupInstances(e *ec2.EC2, bkupId string) (bkupInstances []ec2.CreateImag
 		for instance := range instanceResp.Reservations[reservation].Instances {
 			for tag := range instanceResp.Reservations[reservation].Instances[instance].Tags {
 				if instanceResp.Reservations[reservation].Instances[instance].Tags[tag].Key == "Name" {
-                    // name of the created AMI must be unique so add the Unix Epoch
-					theInstance.Name = instanceResp.Reservations[reservation].Instances[instance].Tags[tag].Value + "-" + strconv.FormatInt(time.Now().Unix(),10)
+					// name of the created AMI must be unique so add the Unix Epoch
+					theInstance.Name = instanceResp.Reservations[reservation].Instances[instance].Tags[tag].Value + "-" + strconv.FormatInt(time.Now().Unix(), 10)
 					break
 				} else {
-					theInstance.Name = instanceResp.Reservations[reservation].Instances[instance].InstanceId + "-" + strconv.FormatInt(time.Now().Unix(),10)
+					theInstance.Name = instanceResp.Reservations[reservation].Instances[instance].InstanceId + "-" + strconv.FormatInt(time.Now().Unix(), 10)
 				}
 			}
 			theInstance.InstanceId = instanceResp.Reservations[reservation].Instances[instance].InstanceId
-            theInstance.NoReboot = true
+			theInstance.NoReboot = true
 			// append details on this instance to the slice
 			bkupInstances = append(bkupInstances, theInstance)
 		}
@@ -146,9 +147,7 @@ func getBkupInstances(e *ec2.EC2, bkupId string) (bkupInstances []ec2.CreateImag
 	return
 }
 
-
 func ssInstance(e *ec2.EC2, abkupInstance *ec2.CreateImage) {
-
 
 	createImageResp, err := e.CreateImage(abkupInstance)
 	if err != nil {
@@ -156,8 +155,8 @@ func ssInstance(e *ec2.EC2, abkupInstance *ec2.CreateImage) {
 		// any problems and out of here as createImageResp is invalid
 		return
 	}
-       // store the creation time in the tag so it can be checked during auto cleanup
-	tags := []ec2.Tag{ec2.Tag{Key: "autocleanup", Value: strconv.FormatInt(time.Now().Unix(),10)}}
+	// store the creation time in the tag so it can be checked during auto cleanup
+	tags := []ec2.Tag{ec2.Tag{Key: "autocleanup", Value: strconv.FormatInt(time.Now().Unix(), 10)}}
 	_, err = e.CreateTags([]string{createImageResp.ImageId}, tags)
 	if err != nil {
 		log.Printf("non-fatal error adding autocleanup tag to image: %v\n", err)
@@ -169,8 +168,6 @@ func ssInstance(e *ec2.EC2, abkupInstance *ec2.CreateImage) {
 	}
 
 }
-
-
 
 func main() {
 	// pointers to objects we use to talk to AWS
@@ -239,7 +236,12 @@ func main() {
 
 	var wg sync.WaitGroup
 
+	// rate limit the AWS requests to max 3 per second
+	rl := rate.New(3, time.Second)
+
 	for instance := range bkupInstances {
+
+		rl.Wait()
 
 		// Increment the WaitGroup counter.
 		wg.Add(1)
@@ -263,5 +265,3 @@ func main() {
 	}
 
 }
-
-

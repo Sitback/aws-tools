@@ -32,6 +32,7 @@ import (
 	"github.com/goamz/goamz/aws"
 	"github.com/goamz/goamz/ec2"
 	"github.com/gombadi/go-ini"
+	"github.com/gombadi/go-rate"
 )
 
 // cmdline flag if we want verbose output
@@ -238,6 +239,9 @@ func main() {
 	// use a waitgroup to sync it all
 	var wg sync.WaitGroup
 
+	// rate limit the AWS requests to max 3 per second
+	rl := rate.New(3, time.Second)
+
 	//
 	for image := range imagesResp.Images {
 
@@ -255,6 +259,8 @@ func main() {
 				if int64(autoDays*86000) < amiLifeSpan {
 
 					anImage := imagesResp.Images[image]
+
+					rl.Wait()
 
 					// Increment the WaitGroup counter.
 					wg.Add(1)

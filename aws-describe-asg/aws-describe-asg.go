@@ -120,7 +120,7 @@ func main() {
 		asgNames = append(asgNames, asgName)
 	}
 
-	groupResp, err := as.DescribeAutoScalingGroups(asgNames)
+	groupResp, err := as.DescribeAutoScalingGroups(asgNames,0,"")
 	if err != nil {
 		fmt.Println("\nBother, things are not looking good getting the autoscale details...\n")
 		panic(err)

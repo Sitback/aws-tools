@@ -11,8 +11,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/goamz/goamz/aws"
 	"github.com/goamz/goamz/autoscaling"
+	"github.com/goamz/goamz/aws"
 	"github.com/gombadi/go-ini"
 )
 
@@ -91,7 +91,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	asGroups, err := as.DescribeAutoScalingGroups(nil)
+	asGroups, err := as.DescribeAutoScalingGroups(nil,0,"")
 	if err != nil {
 		fmt.Println("\nBother, things are not looking good getting the Auto Scale Group Names...\n")
 		log.Fatal(err)

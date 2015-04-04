@@ -42,16 +42,16 @@ groups you have configured in the AWS region.
 
 
 
-## aws-describe-asg
+## awsgo-asgservers
 
 This simple program will display the private ip addresses of
-any instances in the auto scaling group. Good to get the internal ip
+any instances in the auto scaling group. It is usefulto get the internal ip
 addresses if you need to connect to all servers in the group.
 
 
 
 
-## aws-describe-instances
+## awsgo-describe-instances
 
 This simple program will display basic info about the instances in the region.
 

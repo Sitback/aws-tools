@@ -1,8 +1,19 @@
+/*
+This application will display the private ip addresses for an
+auto scaling group. If no auto scale group name is supplied
+then it will display all auto scale group names.
+
+Command line options -
+-a Name of the auto scale group
+
+
+*/
 package main
 
 import (
 	"flag"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/awslabs/aws-sdk-go/aws"
@@ -34,10 +45,10 @@ func main() {
 
 	if awserr := aws.Error(err); awserr != nil {
 		// A service error occurred.
-		fmt.Println("AWS Error:", awserr.Code, awserr.Message)
+		log.Fatalf("AWS Error: %s - %s", awserr.Code, awserr.Message)
 	} else if err != nil {
 		// A non-service error occurred.
-		panic(err)
+		log.Fatalf("Fatal error: DescribeAutoScalingGroups - %s\n", err)
 	}
 
 	// if no asg name provided then display current asg names and exit
@@ -80,10 +91,10 @@ func main() {
 
 	if awserr := aws.Error(err); awserr != nil {
 		// A service error occurred.
-		fmt.Println("AWS Error:", awserr.Code, awserr.Message)
+		log.Fatalf("AWS Error: %s - %s", awserr.Code, awserr.Message)
 	} else if err != nil {
 		// A non-service error occurred.
-		panic(err)
+		log.Fatalf("Fatal error: DescribeInstances - %s\n", err)
 	}
 
 	// extract the private ip address from the instance struct stored in the reservation
